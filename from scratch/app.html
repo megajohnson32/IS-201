@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HD Word Search Generator</title>
+    <link rel="icon" type="image/png" href="../assets/img/magnifying-glass.png">
+
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            color: #222;
+            background-color: #111; /* Dark default while images load */
+            
+            /* High-Definition Image Handling */
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            background-repeat: no-repeat;
+            image-rendering: -webkit-optimize-contrast; /* Sharpens images in Chrome/Safari */
+            image-rendering: crisp-edges;
+            transition: background-image 1.2s ease-in-out;
+        }
+
+        /* High-Contrast Container (No Blur for maximum clarity) */
+        .main-container {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+        }
+
+        h1 { 
+            font-size: 28px; 
+            font-weight: 700; 
+            margin-top: 0; 
+            color: #111;
+            letter-spacing: -0.5px;
+        }
+
+        .subtitle { font-size: 15px; color: #444; margin-bottom: 1.5rem; }
+
+        .input-row { display: flex; gap: 10px; margin-bottom: 1rem; }
+        .input-row input {
+            flex: 1; padding: 12px; border: 2px solid #ddd; border-radius: 8px; outline: none;
+            font-size: 16px;
+        }
+        .input-row input:focus { border-color: #378ADD; }
+
+        .input-row button {
+            padding: 10px 25px; border: none; border-radius: 8px;
+            background: #378ADD; color: white; cursor: pointer; 
+            font-weight: bold; font-size: 16px;
+        }
+
+        .topics-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 1.5rem; }
+        .topic-chip {
+            font-size: 13px; padding: 7px 14px; border: 1px solid #ccc;
+            border-radius: 20px; background: white; cursor: pointer; 
+            color: #333; font-weight: 500;
+        }
+        .topic-chip:hover { background: #378ADD; color: white; border-color: #378ADD; }
+
+        .ws-grid {
+            display: inline-grid; border: 2px solid #222; border-radius: 4px;
+            overflow: hidden; margin-bottom: 1.5rem; background: white;
+        }
+        .ws-cell {
+            width: 38px; height: 38px; display: flex; align-items: center; justify-content: center;
+            font-size: 17px; font-weight: 700; cursor: pointer; border: 0.5px solid #eee;
+            text-transform: uppercase; user-select: none; color: #111;
+        }
+        .ws-cell.found { background: #639c1d !important; color: white !important; }
+        .ws-cell.selected { background: #378ADD; color: white; }
+
+        .ws-words { display: flex; flex-wrap: wrap; gap: 10px; }
+        .ws-word {
+            padding: 6px 14px; border-radius: 6px; border: 1px solid #bbb;
+            background: #fff; font-size: 14px; font-weight: 600; text-transform: uppercase;
+        }
+        .ws-word.found { text-decoration: line-through; background: #e8f5e9; color: #2e7d32; border-color: #2e7d32; }
+
+        .status-msg { font-weight: 700; margin-bottom: 1rem; min-height: 24px; color: #378ADD; text-transform: uppercase; }
+        .win-msg {
+            font-size: 22px; font-weight: 800; color: #1b5e20; background: #c8e6c9;
+            padding: 20px; border-radius: 8px; margin-bottom: 20px; text-align: center;
+            border: 2px solid #2e7d32;
+        }
+    </style>
+</head>
+<body>
+
+<div class="main-container">
+    <h1>Word Search Generator</h1>
+
+    <div class="input-row">
+        <input type="text" id="topicInput" placeholder="Enter custom topic..." maxlength="30" />
+        <button onclick="generatePuzzle()">Generate</button>
+    </div>
+
+    <div class="topics-row">
+        <span class="topic-chip" onclick="quickTopic('ocean')">Ocean</span>
+        <span class="topic-chip" onclick="quickTopic('animals')">Animals</span>
+        <span class="topic-chip" onclick="quickTopic('food')">Food</span>
+        <span class="topic-chip" onclick="quickTopic('space')">Space</span>
+        <span class="topic-chip" onclick="quickTopic('sports')">Sports</span>
+        <span class="topic-chip" onclick="quickTopic('music')">Music</span>
+        <span class="topic-chip" onclick="quickTopic('weather')">Weather</span>
+        <span class="topic-chip" onclick="quickTopic('school')">School</span>
+    </div>
+
+    <div id="statusMsg" class="status-msg"></div>
+    <div id="puzzleArea"></div>
+</div>
+
+<script>
+    // Generate background pictures for each topic
+    const THEMES = {
+        ocean: "url('https://images.unsplash.com/photo-1544551763-46a013bb70d5?q=100&w=2560')",
+        animals: "url('https://images.unsplash.com/photo-1546182990-dffeafbe841d?q=100&w=2560')",
+        food: "url('https://images.unsplash.com/photo-1493770348161-369560ae357d?auto=format&q=100&w=2560')",
+        space: "url('https://images.unsplash.com/photo-1462331940025-496dfbfc7564?auto=format&fit=crop&q=100&w=2560')",
+        sports: "url('https://images.unsplash.com/photo-1574629810360-7efbbe195018?auto=format&fit=crop&q=100&w=2560')",
+        music: "url('https://images.unsplash.com/photo-1511379938547-c1f69419868d?auto=format&q=100&w=2560')",
+        weather: "url('https://images.unsplash.com/photo-1429552077091-836152271555?auto=format&fit=crop&q=100&w=2560')",
+        school: "url('https://images.unsplash.com/photo-1497633762265-9d179a990aa6?auto=format&q=100&w=2560')"
+    };
+
+    const WORD_BANK = {
+        ocean: ['WAVE','CORAL','SHARK','WHALE','TIDE','SHELL','REEF','FISH','SAND','KELP'],
+        animals: ['TIGER','ELEPHANT','GIRAFFE','PENGUIN','DOLPHIN','CHEETAH','GORILLA','JAGUAR'],
+        food: ['PIZZA','BURGER','PASTA','SUSHI','TACO','SALAD','WAFFLE','COOKIE','BREAD','CHEESE'],
+        space: ['PLANET','COMET','GALAXY','METEOR','NEBULA','ORBIT','SATURN','ROCKET','SOLAR','STAR'],
+        sports: ['SOCCER','TENNIS','HOCKEY','BOXING','GOLF','RUGBY','CRICKET','DIVING','SPRINT'],
+        music: ['GUITAR','PIANO','DRUMS','VIOLIN','TRUMPET','MELODY','RHYTHM','CHORUS','BASS','LYRICS'],
+        weather: ['THUNDER','BLIZZARD','TORNADO','DRIZZLE','HAIL','FROST','BREEZE','STORM','SUNNY'],
+        school: ['PENCIL','ERASER','NOTEBOOK','RULER','SCIENCE','HISTORY','ENGLISH','LIBRARY','STUDENT']
+    };
+
+    const GRID_SIZE = 12;
+    const DIRECTIONS = [[0,1],[0,-1],[1,0],[-1,0],[1,1],[1,-1],[-1,1],[-1,-1]];
+    let grid = [], wordList = [], placedWords = [], foundWords = new Set();
+    let selecting = false, selStart = null, selCells = [];
+
+    function quickTopic(topic) {
+        document.getElementById('topicInput').value = topic;
+        generatePuzzle();
+    }
+
+    function generatePuzzle() {
+        const input = document.getElementById('topicInput').value.trim().toLowerCase();
+        if (!input) return;
+
+        let activeTopic = input;
+        let pool = WORD_BANK[input];
+
+        if (!pool) {
+            const keys = Object.keys(WORD_BANK);
+            activeTopic = keys[Math.floor(Math.random() * keys.length)];
+            pool = WORD_BANK[activeTopic];
+        }
+
+        // Apply HD Image
+        if (THEMES[activeTopic]) {
+            document.body.style.backgroundImage = THEMES[activeTopic];
+        }
+
+        wordList = [...pool].sort(() => Math.random() - 0.5).slice(0, 8);
+        buildPuzzle(activeTopic);
+    }
+
+    function buildPuzzle(topic) {
+        grid = Array.from({length: GRID_SIZE}, () => Array(GRID_SIZE).fill(''));
+        placedWords = [];
+        foundWords = new Set();
+        for (const word of wordList) placeWord(word);
+        const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        for (let r = 0; r < GRID_SIZE; r++)
+            for (let c = 0; c < GRID_SIZE; c++)
+                if (!grid[r][c]) grid[r][c] = letters[Math.floor(Math.random() * 26)];
+        renderPuzzle(topic);
+    }
+
+    function placeWord(word) {
+        const dirs = [...DIRECTIONS].sort(() => Math.random() - 0.5);
+        for (let attempt = 0; attempt < 100; attempt++) {
+            const dir = dirs[attempt % dirs.length];
+            const row = Math.floor(Math.random() * GRID_SIZE);
+            const col = Math.floor(Math.random() * GRID_SIZE);
+            if (canPlace(word, row, col, dir)) {
+                for (let i = 0; i < word.length; i++) grid[row + dir[0]*i][col + dir[1]*i] = word[i];
+                placedWords.push({word, row, col, dir});
+                return;
+            }
+        }
+    }
+
+    function canPlace(word, row, col, dir) {
+        for (let i = 0; i < word.length; i++) {
+            const r = row + dir[0]*i, c = col + dir[1]*i;
+            if (r < 0 || r >= GRID_SIZE || c < 0 || c >= GRID_SIZE) return false;
+            if (grid[r][c] && grid[r][c] !== word[i]) return false;
+        }
+        return true;
+    }
+
+    function renderPuzzle(topic) {
+        let html = '<div class="ws-grid" style="grid-template-columns: repeat(' + GRID_SIZE + ', 38px);">';
+        for (let r = 0; r < GRID_SIZE; r++)
+            for (let c = 0; c < GRID_SIZE; c++)
+                html += `<div class="ws-cell" data-r="${r}" data-c="${c}" onmousedown="startSel(event,${r},${c})" onmouseover="moveSel(event,${r},${c})" onmouseup="endSel(event,${r},${c})">${grid[r][c]}</div>`;
+        html += '</div><div class="ws-words">';
+        for (const w of wordList) html += `<div class="ws-word" id="word-${w}">${w}</div>`;
+        html += '</div>';
+        document.getElementById('puzzleArea').innerHTML = html;
+        document.getElementById('statusMsg').textContent = "Current Theme: " + topic.toUpperCase();
+    }
+
+    function startSel(e, r, c) { e.preventDefault(); selecting = true; selStart = {r,c}; selCells = [{r,c}]; updateSelection(); }
+    function moveSel(e, r, c) { if (!selecting) return; selCells = getCellsBetween(selStart, {r,c}); updateSelection(); }
+    function endSel(e, r, c) { if (!selecting) return; selecting = false; checkWord(); clearSelection(); }
+    function globalMouseUp() { selecting = false; clearSelection(); }
+
+    function getCellsBetween(a, b) {
+        const dr = b.r - a.r, dc = b.c - a.c, len = Math.max(Math.abs(dr), Math.abs(dc));
+        if (len === 0) return [a];
+        const sr = dr === 0 ? 0 : dr/Math.abs(dr), sc = dc === 0 ? 0 : dc/Math.abs(dc);
+        if (Math.abs(dr) !== Math.abs(dc) && dr !== 0 && dc !== 0) return [a];
+        const cells = [];
+        for (let i = 0; i <= len; i++) cells.push({r: a.r + sr*i, c: a.c + sc*i});
+        return cells;
+    }
+
+    function updateSelection() {
+        document.querySelectorAll('.ws-cell').forEach(el => !el.classList.contains('found') && el.classList.remove('selected'));
+        selCells.forEach(({r,c}) => {
+            const el = document.querySelector(`[data-r="${r}"][data-c="${c}"]`);
+            if (el && !el.classList.contains('found')) el.classList.add('selected');
+        });
+    }
+
+    function clearSelection() { document.querySelectorAll('.ws-cell.selected').forEach(el => el.classList.remove('selected')); }
+
+    function checkWord() {
+        const selected = selCells.map(({r,c}) => grid[r][c]).join('');
+        const reversed = selected.split('').reverse().join('');
+        for (const pw of placedWords) {
+            if (foundWords.has(pw.word)) continue;
+            if (selected === pw.word || reversed === pw.word) {
+                foundWords.add(pw.word);
+                markFound(pw.word);
+                document.getElementById('word-' + pw.word).classList.add('found');
+                if (foundWords.size === placedWords.length) {
+                    document.getElementById('puzzleArea').insertAdjacentHTML('afterbegin', '<div class="win-msg">✨ Puzzle Complete! Excellent Work!</div>');
+                }
+                return;
+            }
+        }
+    }
+
+    function markFound(word) {
+        for (const pw of placedWords) {
+            if (pw.word !== word) continue;
+            for (let i = 0; i < word.length; i++) {
+                const el = document.querySelector(`[data-r="${pw.row + pw.dir[0]*i}"][data-c="${pw.col + pw.dir[1]*i}"]`);
+                if (el) el.classList.add('found');
+            }
+        }
+    }
+
+    document.addEventListener('mouseup', globalMouseUp);
+    document.getElementById('topicInput').addEventListener('keydown', e => e.key === 'Enter' && generatePuzzle());
+</script>
+
+</body>
+</html>
