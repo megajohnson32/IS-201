@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Word Search Puzzle Generator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 700px;
+            margin: 40px auto;
+            padding: 0 20px;
+            background: #f9f9f9;
+            color: #222;
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 500;
+            margin-bottom: 1.5rem;
+        }
+
+        .input-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 1.5rem;
+        }
+
+        .input-row input {
+            flex: 1;
+            padding: 8px 12px;
+            font-size: 15px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            outline: none;
+        }
+
+        .input-row input:focus {
+            border-color: #378ADD;
+        }
+
+        .input-row button {
+            padding: 8px 18px;
+            font-size: 15px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            background: white;
+            cursor: pointer;
+        }
+
+        .input-row button:hover {
+            background: #f0f0f0;
+        }
+
+        .input-row button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .ws-grid {
+            display: inline-grid;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 1.5rem;
+        }
+
+        .ws-cell {
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            border: 0.5px solid #e0e0e0;
+            background: white;
+            text-transform: uppercase;
+            user-select: none;
+        }
+
+        .ws-cell.found {
+            background: #C0DD97;
+            color: #27500A;
+        }
+
+        .ws-cell.selected {
+            background: #B5D4F4;
+            color: #0C447C;
+        }
+
+        .ws-words {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 1rem;
+        }
+
+        .ws-word {
+            font-size: 13px;
+            padding: 4px 10px;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+            color: #666;
+            background: #f0f0f0;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .ws-word.found {
+            text-decoration: line-through;
+            color: #3B6D11;
+            background: #EAF3DE;
+            border-color: #97C459;
+        }
+
+        .status-msg {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 1rem;
+            min-height: 20px;
+        }
+
+        .loading {
+            font-size: 14px;
+            color: #666;
+            padding: 2rem 0;
+        }
+
+        .error {
+            font-size: 14px;
+            color: #A32D2D;
+            padding: 0.5rem 0;
+        }
+
+        .section-label {
+            font-size: 12px;
+            color: #999;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Word Search Puzzle Generator</h1>
+
+    <div class="input-row">
+        <input type="text" id="topicInput" placeholder="Enter a topic (e.g. ocean, pizza, space...)" maxlength="30" />
+        <button id="genBtn" onclick="generatePuzzle()">Generate Puzzle</button>
+    </div>
+
+    <div id="statusMsg" class="status-msg"></div>
+    <div id="puzzleArea"></div>
+
+    <script>
+        const GRID_SIZE = 12;
+        const DIRECTIONS = [
+            [0,1],[0,-1],[1,0],[-1,0],[1,1],[1,-1],[-1,1],[-1,-1]
+        ];
+
+        let grid = [], wordList = [], placedWords = [], foundWords = new Set();
+        let selecting = false, selStart = null, selCells = [];
+
+        async function generatePuzzle() {
+            const topic = document.getElementById('topicInput').value.trim();
+            if (!topic) return;
+
+            document.getElementById('statusMsg').textContent = '';
+            document.getElementById('puzzleArea').innerHTML = '<div class="loading">Generating words for "' + topic + '"...</div>';
+            document.getElementById('genBtn').disabled = true;
+
+            try {
+                const res = await fetch('https://api.anthropic.com/v1/messages', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model: 'claude-sonnet-4-20250514',
+                        max_tokens: 1000,
+                        messages: [{
+                            role: 'user',
+                            content: 'Generate exactly 10 words related to the topic "' + topic + '". Rules: each word must be 4-10 letters, no spaces, no hyphens, all lowercase, single words only. Return ONLY a JSON array of strings, nothing else. Example: ["word1","word2","word3"]'
+                        }]
+                    })
+                });
+
+                const data = await res.json();
+                const raw = data.content.map(b => b.text || '').join('');
+                const clean = raw.replace(/```json|```/g, '').trim();
+                const words = JSON.parse(clean);
+                wordList = words.map(w => w.toUpperCase().replace(/[^A-Z]/g, ''));
+                buildPuzzle();
+
+            } catch(e) {
+                document.getElementById('puzzleArea').innerHTML = '<div class="error">Something went wrong. Try again!</div>';
+            }
+
+            document.getElementById('genBtn').disabled = false;
+        }
+
+        function buildPuzzle() {
+            grid = Array.from({length: GRID_SIZE}, () => Array(GRID_SIZE).fill(''));
+            placedWords = [];
+            foundWords = new Set();
+
+            for (const word of wordList) {
+                placeWord(word);
+            }
+
+            const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+            for (let r = 0; r < GRID_SIZE; r++)
+                for (let c = 0; c < GRID_SIZE; c++)
+                    if (!grid[r][c]) grid[r][c] = letters[Math.floor(Math.random() * 26)];
+
+            renderPuzzle();
+        }
+
+        function placeWord(word) {
+            const dirs = [...DIRECTIONS].sort(() => Math.random() - 0.5);
+            for (let attempt = 0; attempt < 100; attempt++) {
+                const dir = dirs[attempt % dirs.length];
+                const row = Math.floor(Math.random() * GRID_SIZE);
+                const col = Math.floor(Math.random() * GRID_SIZE);
+                if (canPlace(word, row, col, dir)) {
+                    for (let i = 0; i < word.length; i++) {
+                        grid[row + dir[0] * i][col + dir[1] * i] = word[i];
+                    }
+                    placedWords.push({ word, row, col, dir });
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function canPlace(word, row, col, dir) {
+            for (let i = 0; i < word.length; i++) {
+                const r = row + dir[0] * i, c = col + dir[1] * i;
+                if (r < 0 || r >= GRID_SIZE || c < 0 || c >= GRID_SIZE) return false;
+                if (grid[r][c] && grid[r][c] !== word[i]) return false;
+            }
+            return true;
+        }
+
+        function renderPuzzle() {
+            const topic = document.getElementById('topicInput').value.trim();
+            let html = '<div class="section-label">Find the words</div>';
+            html += '<div class="ws-grid" id="wsGrid" style="grid-template-columns: repeat(' + GRID_SIZE + ', 32px);">';
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    html += '<div class="ws-cell" data-r="' + r + '" data-c="' + c + '" onmousedown="startSel(event,' + r + ',' + c + ')" onmouseover="moveSel(event,' + r + ',' + c + ')" onmouseup="endSel(event,' + r + ',' + c + ')">' + grid[r][c] + '</div>';
+                }
+            }
+            html += '</div><br>';
+            html += '<div class="section-label">Words to find (' + wordList.length + ')</div>';
+            html += '<div class="ws-words" id="wordListEl">';
+            for (const w of wordList) html += '<div class="ws-word" id="word-' + w + '">' + w + '</div>';
+            html += '</div>';
+            document.getElementById('puzzleArea').innerHTML = html;
+            document.getElementById('statusMsg').textContent = 'Topic: ' + topic + ' — click and drag to select words!';
+            document.addEventListener('mouseup', globalMouseUp);
+        }
+
+        function startSel(e, r, c) {
+            e.preventDefault();
+            selecting = true;
+            selStart = {r, c};
+            selCells = [{r, c}];
+            updateSelection();
+        }
+
+        function moveSel(e, r, c) {
+            if (!selecting) return;
+            selCells = getCellsBetween(selStart, {r, c});
+            updateSelection();
+        }
+
+        function endSel(e, r, c) {
+            if (!selecting) return;
+            selecting = false;
+            selCells = getCellsBetween(selStart, {r, c});
+            checkWord();
+            clearSelection();
+        }
+
+        function globalMouseUp() {
+            if (selecting) { selecting = false; clearSelection(); }
+        }
+
+        function getCellsBetween(a, b) {
+            const dr = b.r - a.r, dc = b.c - a.c;
+            const len = Math.max(Math.abs(dr), Math.abs(dc));
+            if (len === 0) return [a];
+            const sr = dr === 0 ? 0 : dr / Math.abs(dr);
+            const sc = dc === 0 ? 0 : dc / Math.abs(dc);
+            if (Math.abs(dr) !== Math.abs(dc) && dr !== 0 && dc !== 0) return [a];
+            const cells = [];
+            for (let i = 0; i <= len; i++) cells.push({r: a.r + sr * i, c: a.c + sc * i});
+            return cells;
+        }
+
+        function updateSelection() {
+            document.querySelectorAll('.ws-cell').forEach(el => {
+                if (!el.classList.contains('found')) el.classList.remove('selected');
+            });
+            selCells.forEach(({r, c}) => {
+                const el = document.querySelector('[data-r="' + r + '"][data-c="' + c + '"]');
+                if (el && !el.classList.contains('found')) el.classList.add('selected');
+            });
+        }
+
+        function clearSelection() {
+            document.querySelectorAll('.ws-cell.selected').forEach(el => el.classList.remove('selected'));
+        }
+
+        function checkWord() {
+            const selected = selCells.map(({r, c}) => grid[r][c]).join('');
+            const reversed = selected.split('').reverse().join('');
+            for (const pw of placedWords) {
+                if (foundWords.has(pw.word)) continue;
+                if (selected === pw.word || reversed === pw.word) {
+                    foundWords.add(pw.word);
+                    markFound(pw.word);
+                    const wEl = document.getElementById('word-' + pw.word);
+                    if (wEl) wEl.classList.add('found');
+                    if (foundWords.size === placedWords.length) {
+                        document.getElementById('statusMsg').textContent = 'You found all the words! Well done!';
+                    } else {
+                        document.getElementById('statusMsg').textContent = 'Found: ' + pw.word + '! (' + foundWords.size + '/' + placedWords.length + ')';
+                    }
+                    return;
+                }
+            }
+        }
+
+        function markFound(word) {
+            for (const pw of placedWords) {
+                if (pw.word !== word) continue;
+                for (let i = 0; i < word.length; i++) {
+                    const r = pw.row + pw.dir[0] * i, c = pw.col + pw.dir[1] * i;
+                    const el = document.querySelector('[data-r="' + r + '"][data-c="' + c + '"]');
+                    if (el) { el.classList.remove('selected'); el.classList.add('found'); }
+                }
+            }
+        }
+
+        document.getElementById('topicInput').addEventListener('keydown', e => {
+            if (e.key === 'Enter') generatePuzzle();
+        });
+    </script>
+
+</body>
+</html>
